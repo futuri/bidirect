@@ -37,6 +37,7 @@ var (
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	procGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
 	procUpdateLayeredWindow = user32.NewProc("UpdateLayeredWindow")
+	procMessageBoxW         = user32.NewProc("MessageBoxW")
 )
 
 const (
@@ -51,6 +52,7 @@ const (
 	WM_PAINT         = 0x000F
 	WM_CLOSE         = 0x0010
 	WM_NCHITTEST     = 0x0084
+	WM_NCRBUTTONUP   = 0x00A5
 	WM_GETMINMAXINFO = 0x0024
 	WM_SIZING        = 0x0214
 	WM_COMMAND       = 0x0111
@@ -80,13 +82,16 @@ const (
 	HWND_TOPMOST = ^uintptr(0)
 
 	MF_STRING     = 0x0000
+	MF_SEPARATOR  = 0x0800
 	TPM_LEFTALIGN = 0x0000
 	TPM_RETURNCMD = 0x0100
 
-	IDM_QUIT         = 1001
-	IDM_RESTORE_SIZE = 1002
-	IDM_ALWAYS_TOP   = 1003
-	IDM_ABOUT        = 1004
+	IDM_QUIT       = 1001
+	IDM_ALWAYS_TOP = 1003
+	IDM_ABOUT      = 1004
+
+	MB_OK       = 0x00000000
+	MB_ICONINFO = 0x00000040
 
 	AC_SRC_OVER  = 0x00
 	AC_SRC_ALPHA = 0x01
@@ -247,6 +252,10 @@ func (w *Window) Run() error {
 		return fmt.Errorf("createDIBSection failed: %v", dibErr)
 	}
 
+	// Show initial logo
+	logo := websocket.CreateBiDirectLogo(w.width)
+	w.applyFrameDirect(logo, w.width, w.height)
+
 	procShowWindow.Call(hwnd, SW_SHOW)
 	procUpdateWindow.Call(hwnd)
 
@@ -339,6 +348,11 @@ func wndProcCallback(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			}
 		}
 	case WM_RBUTTONUP:
+		if w != nil {
+			w.showContextMenu()
+			return 0
+		}
+	case WM_NCRBUTTONUP:
 		if w != nil {
 			w.showContextMenu()
 			return 0
@@ -492,8 +506,6 @@ func (w *Window) showContextMenu() {
 		return
 	}
 
-	quit, _ := syscall.UTF16PtrFromString("Quit")
-	restore, _ := syscall.UTF16PtrFromString("Restore Size")
 	var topText string
 	if w.isTopmost {
 		topText = "✓ Always On Top"
@@ -502,10 +514,11 @@ func (w *Window) showContextMenu() {
 	}
 	alwaysTop, _ := syscall.UTF16PtrFromString(topText)
 	about, _ := syscall.UTF16PtrFromString("About")
+	quit, _ := syscall.UTF16PtrFromString("Quit")
 
-	procAppendMenuW.Call(hMenu, MF_STRING, IDM_RESTORE_SIZE, uintptr(unsafe.Pointer(restore)))
 	procAppendMenuW.Call(hMenu, MF_STRING, IDM_ALWAYS_TOP, uintptr(unsafe.Pointer(alwaysTop)))
 	procAppendMenuW.Call(hMenu, MF_STRING, IDM_ABOUT, uintptr(unsafe.Pointer(about)))
+	procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)
 	procAppendMenuW.Call(hMenu, MF_STRING, IDM_QUIT, uintptr(unsafe.Pointer(quit)))
 
 	var pt POINT
@@ -531,31 +544,17 @@ func (w *Window) handleCommand(id int) {
 	switch id {
 	case IDM_QUIT:
 		procPostQuitMessage.Call(0)
-	case IDM_RESTORE_SIZE:
-		w.restoreSize()
 	case IDM_ALWAYS_TOP:
 		w.toggleAlwaysOnTop()
 	case IDM_ABOUT:
-		// Simple about - could show a message box
+		w.showAbout()
 	}
 }
 
-func (w *Window) restoreSize() {
-	screenW, _, _ := procGetSystemMetrics.Call(SM_CXSCREEN)
-	screenH, _, _ := procGetSystemMetrics.Call(SM_CYSCREEN)
-
-	x := (int(screenW) - w.cfg.InitialSize) / 2
-	y := (int(screenH) - w.cfg.InitialSize) / 2
-
-	procSetWindowPos.Call(
-		uintptr(w.hwnd),
-		0,
-		uintptr(x), uintptr(y),
-		uintptr(w.cfg.InitialSize), uintptr(w.cfg.InitialSize),
-		0,
-	)
-
-	w.resize(w.cfg.InitialSize, w.cfg.InitialSize)
+func (w *Window) showAbout() {
+	title, _ := syscall.UTF16PtrFromString("About BiDirect")
+	msg, _ := syscall.UTF16PtrFromString("BiDirect v1.0\n\nWebSocket streaming receiver with per-pixel alpha transparency.\n\nReceives WebP/PNG/JPEG images via WebSocket and displays them as a borderless overlay window.")
+	procMessageBoxW.Call(uintptr(w.hwnd), uintptr(unsafe.Pointer(msg)), uintptr(unsafe.Pointer(title)), MB_OK|MB_ICONINFO)
 }
 
 func (w *Window) toggleAlwaysOnTop() {
