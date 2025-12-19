@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build
+        run: go build -ldflags "-s -w" -o dist/bidirect.exe ./cmd/heart
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bidirect-windows-amd64
+          path: dist/bidirect.exe
